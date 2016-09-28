@@ -4,6 +4,7 @@
 # Except
 !.gitignore
 !paypal-in-context.php
+!incontext-includes
 !incontext-includes/form.js
 !incontext-includes/incontext.php
 !incontext-includes/sdk
