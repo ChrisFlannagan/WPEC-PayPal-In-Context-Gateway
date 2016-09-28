@@ -22,8 +22,6 @@ class WPSC_Payment_Gateway_PayPal_In_Context extends WPSC_Payment_Gateway {
 	}
 
 	public function process() {
-		var_dump( scandir( 'incontext-includes/sdk' ) );
-		exit();
 		require_once( 'incontext-includes/sdk/PPBootStrap.php' );
 		$mode = 'sandbox';
 		if ( $this->setting->get( 'sandbox_mode' ) != '1' ) {
