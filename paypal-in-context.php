@@ -1,5 +1,13 @@
 <?php
-use PayPal\Service;
+use PayPal\CoreComponentTypes\BasicAmountType;
+use PayPal\Service\PayPalAPIInterfaceServiceService;
+use PayPal\EBLBaseComponents\PaymentDetailsType;
+use PayPal\EBLBaseComponents\PaymentDetailsItemType;
+use PayPal\EBLBaseComponents\SetExpressCheckoutRequestDetailsType;
+use PayPal\PayPalAPI\SetExpressCheckoutReq;
+use PayPal\PayPalAPI\SetExpressCheckoutRequestType;
+use PayPal\PayPalAPI\GetExpressCheckoutDetailsReq;
+use PayPal\PayPalAPI\GetExpressCheckoutDetailsRequestType;
 
 class WPSC_Payment_Gateway_PayPal_In_Context extends WPSC_Payment_Gateway {
 	/**
@@ -8,9 +16,19 @@ class WPSC_Payment_Gateway_PayPal_In_Context extends WPSC_Payment_Gateway {
 	 * @access public
 	 * @since 3.9
 	 */
+	public $config_paypal = array();
+	public $url = 'https://www.sandbox.paypal.com/cgi-bin/webscr?cmd=_express-checkout&token=';
+
 	public function __construct() {
 		parent::__construct();
 		$this->title = __( 'PayPal In-Context', 'wp-e-commerce' );
+		$mode = 'sandbox';
+		$this->config_paypal = array (
+			'mode' => $mode,
+			'acct1.UserName' => esc_attr( $this->setting->get( 'api_username' ) ),
+			'acct1.Password' => esc_attr( $this->setting->get( 'api_password' ) ),
+			'acct1.Signature' => esc_attr( $this->setting->get( 'api_signature' ) )
+		);
 		add_action( 'wp_enqueue_scripts', array ( $this, 'load_scripts' ) );
 	}
 
@@ -22,18 +40,12 @@ class WPSC_Payment_Gateway_PayPal_In_Context extends WPSC_Payment_Gateway {
 	}
 
 	public function process() {
-		require_once( 'incontext-includes/sdk/PPBootStrap.php' );
-		$mode = 'sandbox';
+		require_once( 'incontext-includes/sdk/vendor/paypal/merchant-sdk-php/samples/PPBootStrap.php' );
 		if ( $this->setting->get( 'sandbox_mode' ) != '1' ) {
 			$mode = 'product';
+			$url = 'https://www.paypal.com/cgi-bin/webscr?cmd=_express-checkout&token=';
 		}
-		$config = array (
-			'mode' => $mode,
-			'acct1.UserName' => esc_attr( $this->setting->get( 'api_username' ) ),
-			'acct1.Password' => esc_attr( $this->setting->get( 'api_password' ) ),
-			'acct1.Signature' => esc_attr( $this->setting->get( 'api_signature' ) )
-		);
-		$paypalService = new PayPalAPIInterfaceServiceService($config);
+		$paypalService = new PayPalAPIInterfaceServiceService( $this->config_paypal );
 		$paymentDetails= new PaymentDetailsType();
 
 		$itemDetails = new PaymentDetailsItemType();
@@ -54,8 +66,8 @@ class WPSC_Payment_Gateway_PayPal_In_Context extends WPSC_Payment_Gateway {
 
 		$setECReqDetails = new SetExpressCheckoutRequestDetailsType();
 		$setECReqDetails->PaymentDetails[0] = $paymentDetails;
-		$setECReqDetails->CancelURL = 'https://devtools-paypal.com/guide/expresscheckout/php?cancel=true';
-		$setECReqDetails->ReturnURL = 'https://devtools-paypal.com/guide/expresscheckout/php?success=true';
+		$setECReqDetails->CancelURL = site_url() . '/store/checkout/payment/?cancel=true';
+		$setECReqDetails->ReturnURL = $this->get_return_url();
 
 		$setECReqType = new SetExpressCheckoutRequestType();
 		$setECReqType->Version = '104.0';
@@ -65,10 +77,88 @@ class WPSC_Payment_Gateway_PayPal_In_Context extends WPSC_Payment_Gateway {
 		$setECReq->SetExpressCheckoutRequest = $setECReqType;
 
 		$setECResponse = $paypalService->SetExpressCheckout($setECReq);
+		wp_redirect( $this->url. $setECResponse->Token );
+		exit;
 	}
 
 
+	protected function get_return_url() {
+		$transact_url = get_option( 'transact_url' );
+		$transact_url = apply_filters( 'wpsc_paypal_express_checkout_transact_url', $transact_url );
+
+		$location = add_query_arg( array(
+			'sessionid'                => $this->purchase_log->get( 'sessionid' ),
+			'payment_gateway'          => 'paypal-in-context',
+			'payment_gateway_callback' => 'confirm_transaction',
+		),
+			$transact_url
+		);
+		return apply_filters( 'wpsc_paypal_express_checkout_return_url', $location, $this );
+	}
+
 	/**
+	 * Confirm Transaction Callback
+	 *
+	 * @return bool
+	 *
+	 * @since 3.9
+	 */
+	public function callback_confirm_transaction() {
+		if ( ! isset( $_REQUEST['sessionid'] ) || ! isset( $_REQUEST['token'] ) || ! isset( $_REQUEST['PayerID'] ) ) {
+			return false;
+		}
+
+		// Set the Purchase Log
+		$this->set_purchase_log_for_callbacks();
+
+		// Display the Confirmation Page
+		// $this->do_transaction();
+
+		// Remove Shortcut option if it exists
+		//$sessionid = $_REQUEST['sessionid'];
+		//wpsc_delete_customer_meta( 'esc-' . $sessionid );
+	}
+
+	/**
+	 * Creates a new Purchase Log entry and set it to the current object
+	 *
+	 * @return null
+	 */
+	protected function set_purchase_log_for_callbacks( $sessionid = false ) {
+		// Define the sessionid if it's not passed
+		if ( $sessionid === false ) {
+			$sessionid = $_REQUEST['sessionid'];
+		}
+
+		// Create a new Purchase Log entry
+		$purchase_log = new WPSC_Purchase_Log( $sessionid, 'sessionid' );
+
+		if ( ! $purchase_log->exists() ) {
+			return null;
+		}
+
+		// Set the Purchase Log for the gateway object
+		$this->set_purchase_log( $purchase_log );
+	}
+
+	protected function confirm_transaction() {
+		echo "I'M BACK";
+		exit();
+		/*
+		require_once( 'incontext-includes/sdk/vendor/paypal/merchant-sdk-php/samples/PPBootStrap.php' );
+		$paypalService                                           = new PayPalAPIInterfaceServiceService( $this->config_paypal );
+		$getExpressCheckoutDetailsRequest                        = new GetExpressCheckoutDetailsRequestType( $_GET['token'] );
+		$getExpressCheckoutDetailsRequest->Version               = '104.0';
+		$getExpressCheckoutReq                                   = new GetExpressCheckoutDetailsReq();
+		$getExpressCheckoutReq->GetExpressCheckoutDetailsRequest = $getExpressCheckoutDetailsRequest;
+
+		$getECResponse = $paypalService->GetExpressCheckoutDetails( $getExpressCheckoutReq );
+		$this->purchase_log->set( 'processed', WPSC_PAYMENT_STATUS_RECEIVED )->save();
+		$this->go_to_transaction_results();
+		*/
+	}
+
+	/**s
 	 * Displays the setup form
 	 *
 	 * @access public
@@ -85,6 +175,7 @@ class WPSC_Payment_Gateway_PayPal_In_Context extends WPSC_Payment_Gateway {
 		<tr>
 			<td colspan="2">
 				<h4><?php _e( 'Account Credentials', 'wp-e-commerce' ); ?></h4>
+				<?php echo get_option( 'transact_url' ); ?>
 			</td>
 		</tr>
 		<tr>
@@ -139,5 +230,20 @@ class WPSC_Payment_Gateway_PayPal_In_Context extends WPSC_Payment_Gateway {
 		</tr>
 
 		<?php
+	}
+
+
+	/**
+	 * Return Customer to Review Order Page if there are Shipping Costs.
+	 *
+	 * @param string $url
+	 * @return string
+	 */
+	public function review_order_url( $url ) {
+		if ( wpsc_uses_shipping() ) {
+			$url = wpsc_get_checkout_url( 'review-order' );
+		}
+
+		return $url;
 	}
 }
