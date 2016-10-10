@@ -40,6 +40,7 @@ class WPSC_Payment_Gateway_PayPal_In_Context extends WPSC_Payment_Gateway {
 	}
 
 	public function process() {
+		$order = $this->purchase_log;
 		require_once( 'incontext-includes/sdk/vendor/paypal/merchant-sdk-php/samples/PPBootStrap.php' );
 		if ( $this->setting->get( 'sandbox_mode' ) != '1' ) {
 			$mode = 'product';
@@ -48,18 +49,22 @@ class WPSC_Payment_Gateway_PayPal_In_Context extends WPSC_Payment_Gateway {
 		$paypalService = new PayPalAPIInterfaceServiceService( $this->config_paypal );
 		$paymentDetails= new PaymentDetailsType();
 
-		$itemDetails = new PaymentDetailsItemType();
-		$itemDetails->Name = 'item';
-		$itemAmount = '1.00';
-		$itemDetails->Amount = $itemAmount;
-		$itemQuantity = '1';
-		$itemDetails->Quantity = $itemQuantity;
+		$item_cnt = 0;
+		foreach ( $order->get_cart_contents() as $order_item ) {
+			$itemDetails = new PaymentDetailsItemType();
+			$itemDetails->Name = $order_item->prodid . ': ' . $order_item->name;
+			$itemAmount = $order_item->price;
+			$itemDetails->Amount = $itemAmount;
+			$itemQuantity = $order_item->quantity;
+			$itemDetails->Quantity = $itemQuantity;
 
-		$paymentDetails->PaymentDetailsItem[0] = $itemDetails;
+			$paymentDetails->PaymentDetailsItem[ $item_cnt ] = $itemDetails;
+			$item_cnt++;
+		}
 
 		$orderTotal = new BasicAmountType();
-		$orderTotal->currencyID = 'USD';
-		$orderTotal->value = $itemAmount * $itemQuantity;
+		$orderTotal->currencyID = $this->setting->get( 'currency', 'USD' );;
+		$orderTotal->value = $order->get( 'totalprice' );
 
 		$paymentDetails->OrderTotal = $orderTotal;
 		$paymentDetails->PaymentAction = 'Sale';
